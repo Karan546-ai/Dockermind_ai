@@ -1,0 +1,33 @@
+# ===================================================================
+# Python / Virtual Environments
+# ===================================================================
+# Ignore all virtual environment folders
+/.venv
+/venv
+/env
+/.env/
+.env
+
+# Ignore Python bytecode and caches
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+
+# ===================================================================
+# OS-specific & Temporary Files
+# ===================================================================
+# Ignore macOS-specific files
+**/.DS_Store
+.AppleDouble
+.LSOverride
+
+# Ignore Windows-specific files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ===================================================================
+# Log files
+# ===================================================================
+**/*.log

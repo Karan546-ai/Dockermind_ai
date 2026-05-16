@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocMind AI — Chat with Your Documents</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Simple scrollbar styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #2d3748;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #4a5568;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #718096;
+        }
+
+        .chat-bubble-user {
+            background-color: #4a5568;
+            align-self: flex-end;
+        }
+
+        .chat-bubble-ai {
+            background-color: #2d3748;
+            align-self: flex-start;
+        }
+
+        /* Progress bar animation */
+        @keyframes pulse {
+            50% {
+                opacity: .5;
+            }
+        }
+
+        .animate-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-800 text-gray-200 font-sans h-full flex flex-col">
+
+    <header class="bg-gray-900 shadow-md p-4">
+        <h1 class="text-2xl font-bold text-center text-white">🧠 DocMind AI</h1>
+    </header>
+
+    <main class="flex-grow container mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <div class="lg:col-span-1 flex flex-col gap-6">
+
+            <div class="bg-gray-700 rounded-lg p-6 shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b border-gray-600 pb-2">1. Upload Documents</h2>
+                <input type="file" id="file-input"
+                    class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-500 file:text-white hover:file:bg-indigo-600 cursor-pointer"
+                    accept=".pdf,.docx,.doc,.pptx,.ppt,.txt,.md" multiple>
+                <span id="file-count-feedback" class="text-sm text-gray-400 mt-2 block h-5"></span>
+                <button id="upload-btn"
+                    class="mt-2 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed">
+                    Upload and Index
+                </button>
+            </div>
+
+            <div id="progress-section" class="bg-gray-700 rounded-lg p-6 shadow-lg flex-grow flex flex-col gap-4">
+                <div class="flex justify-between items-center border-b border-gray-600 pb-2 mb-4">
+                    <h2 class="text-xl font-semibold">Upload Progress</h2>
+                    <button id="clear-progress-btn" class="text-sm text-indigo-400 hover:text-indigo-300">Clear</button>
+                </div>
+                <div id="progress-bars-container" class="flex flex-col gap-4 overflow-y-auto">
+                    <div id="progress-placeholder" class="text-gray-500 text-center py-4">
+                        Upload files to see their indexing progress.
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="lg:col-span-2 bg-gray-700 rounded-lg shadow-lg flex flex-col h-[85vh]">
+            <h2 class="text-xl font-semibold p-4 border-b border-gray-600">2. Chat with Documents</h2>
+
+            <div id="chat-box" class="flex-grow p-4 overflow-y-auto flex flex-col gap-4">
+            </div>
+
+            <div class="p-4 border-t border-gray-600">
+                <div class="flex gap-4">
+                    <input type="text" id="chat-input" placeholder="Ask a question about the documents..."
+                        class="flex-grow p-3 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+                        disabled>
+                    <button id="send-btn"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled>
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        const API_BASE_URL = "http://127.0.0.1:8000/api/v1";
+
+        // DOM Elements
+        const uploadBtn = document.getElementById('upload-btn');
+        const fileInput = document.getElementById('file-input');
+        const sendBtn = document.getElementById('send-btn');
+        const chatInput = document.getElementById('chat-input');
+        const chatBox = document.getElementById('chat-box');
+        const progressSection = document.getElementById('progress-section');
+        const progressBarsContainer = document.getElementById('progress-bars-container');
+        const fileCountFeedback = document.getElementById('file-count-feedback');
+        const clearProgressBtn = document.getElementById('clear-progress-btn');
+
+        let statusInterval;
+        let activeJobs = new Set();
+
+        // --- Logger Function ---
+        function logMessage(message, type = 'info') {
+            const logFunction = type === 'error' ? console.error : console.log;
+            logFunction(`[RAG UI] ${message}`);
+        }
+
+        // --- Progress Bar Functions ---
+        function createProgressBar(filename, jobId) {
+            const placeholder = document.getElementById('progress-placeholder');
+            if (placeholder) placeholder.remove();
+            const progressWrapper = document.createElement('div');
+            progressWrapper.id = `job-${jobId}`;
+            progressWrapper.className = 'w-full';
+            progressWrapper.innerHTML = `
+                <div class="flex justify-between mb-1">
+                    <span class="text-sm font-medium text-gray-300 truncate pr-2" title="${filename}">${filename}</span>
+                    <span class="text-sm font-medium text-gray-400 status-text">Waiting...</span>
+                </div>
+                <div class="w-full bg-gray-800 rounded-full h-2.5">
+                    <div class="bg-blue-600 h-2.5 rounded-full progress-bar" style="width: 5%"></div>
+                </div>
+            `;
+            progressBarsContainer.appendChild(progressWrapper);
+        }
+
+        function updateProgressBar(jobId, status, details) {
+            const jobElement = document.getElementById(`job-${jobId}`);
+            if (!jobElement) return;
+
+            const progressBar = jobElement.querySelector('.progress-bar');
+            const statusText = jobElement.querySelector('.status-text');
+
+            statusText.textContent = details;
+            progressBar.classList.remove('bg-blue-600', 'bg-green-500', 'bg-red-500', 'animate-pulse');
+
+            if (status === 'processing') {
+                progressBar.style.width = '50%';
+                progressBar.classList.add('bg-blue-600', 'animate-pulse');
+            } else if (status === 'completed') {
+                progressBar.style.width = '100%';
+                progressBar.classList.add('bg-green-500');
+                statusText.textContent = 'Completed';
+            } else if (status === 'failed') {
+                progressBar.style.width = '100%';
+                progressBar.classList.add('bg-red-500');
+                statusText.textContent = 'Failed';
+            }
+        }
+
+
+        // --- Chat UI Functions ---
+        function addChatMessage(message, sender) {
+            const bubble = document.createElement('div');
+            bubble.classList.add('p-3', 'rounded-lg', 'max-w-lg', 'break-words');
+            if (sender === 'user') {
+                bubble.classList.add('chat-bubble-user');
+                bubble.textContent = message;
+            } else {
+                bubble.classList.add('chat-bubble-ai');
+                bubble.id = 'ai-streaming-bubble';
+                bubble.textContent = '▋';
+            }
+            chatBox.appendChild(bubble);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function updateStreamingMessage(chunk) {
+            const streamingBubble = document.getElementById('ai-streaming-bubble');
+            if (streamingBubble) {
+                if (streamingBubble.textContent === '▋') streamingBubble.textContent = '';
+                streamingBubble.textContent += chunk;
+                chatBox.scrollTop = chatBox.scrollHeight;
+            }
+        }
+
+        function finishStreaming() {
+            const streamingBubble = document.getElementById('ai-streaming-bubble');
+            if (streamingBubble) streamingBubble.removeAttribute('id');
+        }
+
+        // --- API Call Functions ---
+        async function uploadFiles() {
+            if (!fileInput.files.length) {
+                alert('Please select one or more files first.');
+                return;
+            }
+
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+            progressBarsContainer.innerHTML = '';
+            logMessage(`Starting upload of ${fileInput.files.length} file(s)...`);
+
+            const formData = new FormData();
+            Array.from(fileInput.files).forEach(file => formData.append('files', file));
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/uploadfiles`, {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(`HTTP error! status: ${response.status} - ${errorData.detail}`);
+                }
+
+                const results = await response.json();
+                logMessage(`Successfully submitted ${results.length} file(s) for indexing.`);
+
+                results.forEach(result => {
+                    activeJobs.add(result.index_id);
+                    createProgressBar(result.filename, result.index_id);
+                    logMessage(`- Job started for ${result.filename} (ID: ${result.index_id})`);
+                });
+
+                startStatusPolling();
+
+            } catch (error) {
+                logMessage(`Upload failed: ${error}`, 'error');
+                alert(`Upload failed: ${error.message}`);
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Upload and Index';
+                fileInput.value = '';
+                updateFileCount();
+            }
+        }
+
+        async function checkStatus(indexId) {
+            if (!indexId) return null;
+            try {
+                const response = await fetch(`${API_BASE_URL}/indexing_status/${indexId}`);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                logMessage(`Status check failed for ${indexId}: ${error}`, 'error');
+                return { status: 'failed', details: 'Failed to fetch status' };
+            }
+        }
+
+        function startStatusPolling() {
+            if (statusInterval) return;
+
+            chatInput.disabled = true;
+            sendBtn.disabled = true;
+            chatInput.placeholder = `Indexing ${activeJobs.size} document(s)...`;
+
+            statusInterval = setInterval(async () => {
+                if (activeJobs.size === 0) {
+                    clearInterval(statusInterval);
+                    statusInterval = null;
+                    logMessage('All indexing complete. You can now chat.');
+                    chatInput.disabled = false;
+                    sendBtn.disabled = false;
+                    chatInput.placeholder = 'Ask a question about the documents...';
+                    return;
+                }
+
+                const jobsToCheck = Array.from(activeJobs);
+                for (const jobId of jobsToCheck) {
+                    const result = await checkStatus(jobId);
+                    if (result) {
+                        updateProgressBar(jobId, result.status, result.details);
+                        if (result.status === 'completed' || result.status === 'failed') {
+                            logMessage(`Job ${jobId} finished with status: ${result.status}`);
+                            activeJobs.delete(jobId);
+                        }
+                    }
+                }
+                chatInput.placeholder = activeJobs.size > 0 ? `Indexing ${activeJobs.size} document(s)...` : 'Ask a question...';
+
+            }, 3000); // Poll every 3 seconds
+        }
+
+        async function sendMessage() {
+            const query = chatInput.value.trim();
+            if (!query) return;
+
+            addChatMessage(query, 'user');
+            chatInput.value = '';
+            sendBtn.disabled = true;
+
+            addChatMessage('', 'ai');
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/chat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query }),
+                });
+
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value, { stream: true });
+                    updateStreamingMessage(chunk);
+                }
+                finishStreaming();
+
+            } catch (error) {
+                updateStreamingMessage(`\n\nError: ${error}`);
+                finishStreaming();
+                logMessage(`Chat failed: ${error}`, 'error');
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        // --- File count feedback ---
+        function updateFileCount() {
+            const count = fileInput.files.length;
+            if (count === 0) {
+                fileCountFeedback.textContent = '';
+            } else if (count === 1) {
+                fileCountFeedback.textContent = '1 file selected';
+            } else {
+                fileCountFeedback.textContent = `${count} files selected`;
+            }
+        }
+
+        // --- Event Listeners ---
+        uploadBtn.addEventListener('click', uploadFiles);
+        sendBtn.addEventListener('click', sendMessage);
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        fileInput.addEventListener('change', updateFileCount); // New listener
+        clearProgressBtn.addEventListener('click', () => {
+            progressBarsContainer.innerHTML = '<div id="progress-placeholder" class="text-gray-500 text-center py-4">Upload files to see their indexing progress.</div>';
+        });
+
+
+    </script>
+</body>
+
+</html>

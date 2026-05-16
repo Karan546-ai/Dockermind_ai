@@ -1,0 +1,9 @@
+uvicorn==0.35.0
+pydantic==2.11.7
+fastapi[all]==0.116.1
+pydantic-settings==2.10.1
+google-genai==1.25.0
+llama-index==0.12.49
+qdrant-client==1.14.3
+python-multipart==0.0.20
+llama-parse==0.6.49
