@@ -49,9 +49,8 @@ class ChatService:
         formatted_context = self._format_context(context_chunks)
 
         # 2. Generate response with a stream from OpenAI
-        system_prompt = """You are a helpful AI assistant. Answer questions based ONLY on the provided context.
-        If the context doesn't contain the answer, state "I don't have enough information to answer this question."
-        Do not use any external knowledge."""
+        system_prompt = """You are a helpful AI assistant. Use the provided context to answer the user's questions accurately.
+        If the context does not contain the specific answer, you may use your general knowledge to answer, but please mention that you are relying on general knowledge."""
 
         user_prompt = f"Context:\n{formatted_context}\n\nQuestion: {query}"
 
