@@ -16,17 +16,15 @@ logger = logging.getLogger("app")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🧠 DocMind AI starting up...")
-    from app.config.settings import settings
-    if settings.QDRANT_URL:
-        logger.info("Initializing Qdrant collection...")
-        try:
-            vector_store_service.initialize_collection()
-            logger.info("Qdrant collection initialized successfully.")
-        except Exception as e:
-            logger.error(f"Failed to initialize Qdrant collection: {e}")
-    else:
-        logger.warning("QDRANT_URL not set -- vector store disabled. Add credentials to .env file.")
+    logger.info("DocMind AI starting up...")
+    logger.info("Initializing Qdrant collection...")
+    try:
+        vector_store_service.initialize_collection()
+        from app.config.settings import settings
+        mode = "in-memory" if not settings.QDRANT_URL else "cloud"
+        logger.info(f"Qdrant collection initialized successfully ({mode} mode).")
+    except Exception as e:
+        logger.error(f"Failed to initialize Qdrant collection: {e}")
     yield
     logger.info("DocMind AI shutting down...")
 

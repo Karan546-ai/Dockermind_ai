@@ -1,5 +1,7 @@
 # logging_config/config.py
 
+import sys
+import io
 import logging
 
 LOGGING_CONFIG = {
@@ -16,11 +18,13 @@ LOGGING_CONFIG = {
             "class": "logging.StreamHandler",
             "formatter": "default",
             "level": logging.INFO,
+            "stream": io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace"),
         },
         "file": {
             "class": "logging.handlers.RotatingFileHandler",
             "formatter": "default",
-            "filename": "app/app.log",  
+            "filename": "app/app.log",
+            "encoding": "utf-8",
             "maxBytes": 1024 * 1024 * 5,
             "backupCount": 3,
             "level": logging.INFO,

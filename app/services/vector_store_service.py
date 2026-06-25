@@ -1,5 +1,6 @@
 # app/services/vector_store_service.py
 
+import uuid
 import logging
 from typing import List, Dict
 from app.config.settings import settings
@@ -21,14 +22,28 @@ class VectorStoreService:
             if not settings.QDRANT_URL or settings.QDRANT_URL == ":memory:":
                 self._client = QdrantClient(location=":memory:")
             else:
-                self._client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY)
+                self._client = QdrantClient(
+                    url=settings.QDRANT_URL,
+                    api_key=settings.QDRANT_API_KEY,
+                    prefer_grpc=False,
+                    check_compatibility=False,
+                )
         return self._client
 
     def initialize_collection(self):
-        """Creates the Qdrant collection if it doesn't exist."""
+        """Creates the Qdrant collection if it doesn't exist (non-destructive)."""
         from qdrant_client import models
         try:
-            self.client.recreate_collection(
+            collections = self.client.get_collections().collections
+            existing_names = [c.name for c in collections]
+
+            if self.collection_name in existing_names:
+                logger.info(
+                    f"Collection '{self.collection_name}' already exists. Skipping creation."
+                )
+                return
+
+            self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config=models.VectorParams(
                     size=self.embedding_service.get_embedding_dimension(),
@@ -36,14 +51,11 @@ class VectorStoreService:
                 ),
             )
             logger.info(
-                f"Collection '{self.collection_name}' created or already exists."
+                f"Collection '{self.collection_name}' created successfully."
             )
         except Exception as e:
             logger.error(f"Failed to create Qdrant collection: {e}")
-            # If it's a 409 conflict, it means it exists, which is fine.
-            # For other errors, we should raise them.
-            if "already exists" not in str(e).lower():
-                raise
+            raise
 
     def upsert_chunks(self, chunks: List[Dict]):
         """Embeds and upserts document chunks into Qdrant."""
@@ -51,8 +63,13 @@ class VectorStoreService:
         points = []
         for i, chunk in enumerate(chunks):
             vector = self.embedding_service.create_embedding(chunk["text"])
+            # Generate a proper UUID for Qdrant (LlamaIndex node_ids may not be valid UUIDs)
+            try:
+                point_id = str(uuid.UUID(chunk["id"]))
+            except (ValueError, AttributeError):
+                point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, chunk["id"]))
             point = models.PointStruct(
-                id=chunk["id"],  # Using the node_id from LlamaIndex as the point ID
+                id=point_id,
                 vector=vector,
                 payload=chunk,  # Store the entire chunk dict as payload
             )

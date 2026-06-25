@@ -59,9 +59,23 @@ class DocumentService:
             return self._parse_pdf_with_gemini(file_content, filename)
 
         elif file_ext in self.llamaparse_supported_ext:
-            # LlamaParse has an async API; we run it in a new event loop.
-            # This is safe to do inside a background task.
-            return asyncio.run(self._parse_with_llamaparse(file_content, filename))
+            # LlamaParse has an async API; we need to handle the event loop carefully.
+            # FastAPI background tasks already run inside an event loop, so asyncio.run()
+            # would crash. We detect whether a loop is already running and handle accordingly.
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # We're inside an existing event loop (e.g. FastAPI BackgroundTask).
+                # Create a new thread to run the coroutine to avoid nested loop issues.
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, self._parse_with_llamaparse(file_content, filename))
+                    return future.result()
+            else:
+                return asyncio.run(self._parse_with_llamaparse(file_content, filename))
 
         elif file_ext in self.direct_supported_ext:
             return self._parse_text_direct(file_content)
